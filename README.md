@@ -35,10 +35,12 @@
 | --- | --- |
 | 테스트 | `make test` |
 | 웹 서버 (포트 8000) | `make serve` |
-| 충돌 실험 | `make experiment` |
+| 해시 탐색 비교 횟수 실험 | `make experiment` |
 | 놓친 단계 따라잡기 | `sh tools/catchup.sh <단계 번호>` |
 
 외부 라이브러리는 쓰지 않습니다. Python 표준 모듈만으로 충분합니다.
+실험 결과표와 그래프는 각각 `experiments/results.csv`와
+`experiments/results.svg`에 저장됩니다.
 
 ## 로컬에서 하기
 
