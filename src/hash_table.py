@@ -1,7 +1,11 @@
 class HashTable:
-    def __init__(self):
-        self._buckets = [[] for _ in range(8)]
+    def __init__(self, capacity=8, max_load=0.75):
+        if capacity <= 0:
+            raise ValueError("capacity must be positive")
+
+        self._buckets = [[] for _ in range(capacity)]
         self._size = 0
+        self._max_load = max_load
 
     @property
     def capacity(self):
@@ -20,11 +24,17 @@ class HashTable:
         return value % self.capacity
 
     def get(self, key):
+        value, _ = self.get_with_comparisons(key)
+        return value
+
+    def get_with_comparisons(self, key):
         bucket = self._buckets[self._index(key)]
+        comparisons = 0
         for stored_key, value in bucket:
+            comparisons += 1
             if stored_key == key:
-                return value
-        return None
+                return value, comparisons
+        return None, comparisons
 
     def set(self, key, value):
         index = self._index(key)
@@ -36,7 +46,10 @@ class HashTable:
 
         bucket.append((key, value))
         self._size += 1
-        if self._size / self.capacity > 0.75:
+        if (
+            self._max_load is not None
+            and self._size / self.capacity > self._max_load
+        ):
             self._resize()
 
     def _resize(self):

@@ -52,6 +52,29 @@ class HashTableTests(unittest.TestCase):
             with self.subTest(index=index):
                 self.assertEqual(table.get(f"key-{index}"), index)
 
+    def test_none_max_load_keeps_capacity_fixed(self):
+        table = HashTable(capacity=8, max_load=None)
+
+        for index in range(12):
+            table.set(f"key-{index}", index)
+
+        self.assertEqual(table.capacity, 8)
+        self.assertEqual(len(table), 12)
+        for index in range(12):
+            with self.subTest(index=index):
+                self.assertEqual(table.get(f"key-{index}"), index)
+
+    def test_get_with_comparisons_counts_nodes_visited(self):
+        table = HashTable(max_load=None)
+        for key in ("a", "i", "q"):
+            table.set(key, f"value-{key}")
+
+        self.assertEqual(table.get_with_comparisons("a"), ("value-a", 1))
+        self.assertEqual(table.get_with_comparisons("i"), ("value-i", 2))
+        self.assertEqual(table.get_with_comparisons("q"), ("value-q", 3))
+        self.assertEqual(table.get_with_comparisons("y"), (None, 3))
+        self.assertEqual(table.get_with_comparisons("missing"), (None, 0))
+
 
 if __name__ == "__main__":
     unittest.main()
