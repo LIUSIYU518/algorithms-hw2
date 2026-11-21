@@ -59,8 +59,12 @@ HOME_PAGE = """<!doctype html>
 
 
 class ShortenerHTTPServer(HTTPServer):
-    def __init__(self, server_address, shortener=None):
-        self.shortener = shortener if shortener is not None else URLShortener()
+    def __init__(self, server_address, shortener=None, strategy="chaining"):
+        self.shortener = (
+            shortener
+            if shortener is not None
+            else URLShortener(strategy=strategy)
+        )
         super().__init__(server_address, ShortenerRequestHandler)
 
 
@@ -147,55 +151,79 @@ class ShortenerRequestHandler(BaseHTTPRequestHandler):
         self._send_json(status, {"code": code, "short_url": short_url})
 
     def _table_page(self):
-        bucket_count = self.server.shortener._url_to_code.capacity
+        table = self.server.shortener._url_to_code
+        capacity = table.capacity
         base_url = self._public_base_url()
         rows = []
 
-        for index, bucket in enumerate(self.server.shortener._url_to_code._buckets):
-            nodes = []
-            for url, code in bucket:
-                safe_url = escape(url, quote=True)
-                safe_code = escape(code, quote=True)
-                calculations = []
-                value = 0
-                for position, character in enumerate(url, start=1):
-                    previous = value
-                    value = 31 * value + ord(character)
-                    calculations.append(
-                        "<li>h_{0} = (31 * {1}) + ord({2}) = {3}</li>".format(
-                            position,
-                            previous,
-                            escape(repr(character)),
-                            value,
-                        )
-                    )
+        def entry_html(index, url, code, probe_indices):
+            safe_url = escape(url, quote=True)
+            safe_code = escape(code, quote=True)
+            calculations = []
+            value = 0
+            for position, character in enumerate(url, start=1):
+                previous = value
+                value = 31 * value + ord(character)
                 calculations.append(
-                    "<li>bucket = {0} % {1} = {2}</li>".format(
-                        value, bucket_count, index
+                    "<li>h_{0} = (31 * {1}) + ord({2}) = {3}</li>".format(
+                        position,
+                        previous,
+                        escape(repr(character)),
+                        value,
                     )
                 )
-                short_link = escape(
-                    f"{base_url}/{safe_code}", quote=True
+            home = value % capacity
+            calculations.append(
+                f"<li>home = {value} % {capacity} = {home}</li>"
+            )
+            if self.server.shortener.strategy == "linear_probing":
+                calculations.append(
+                    f"<li>확인한 칸 ({len(probe_indices)}개; "
+                    "한 칸씩 이동, 끝에서 처음으로 순환): "
+                    f"{', '.join(str(slot) for slot in probe_indices)}</li>"
                 )
-                nodes.append(
-                    "<div class=\"node\">"
-                    f"<strong>URL 키:</strong> <code>{safe_url}</code><br>"
-                    f"<strong>짧은 코드:</strong> <code>{safe_code}</code><br>"
-                    f"<strong>짧은 링크:</strong> "
-                    f"<a href=\"{short_link}\">{short_link}</a>"
-                    "<details><summary>호너 해시 계산 과정</summary>"
-                    f"<ol>{''.join(calculations)}</ol></details>"
-                    "</div>"
-                )
-            chain = " &rarr; ".join(nodes) if nodes else "<em>비어 있음</em>"
-            rows.append(f"<tr><th scope=\"row\">{index}</th><td>{chain}</td></tr>")
+                calculations.append(f"<li>저장된 칸 = {index}</li>")
+            else:
+                calculations.append(f"<li>bucket = {home}</li>")
+            short_link = escape(f"{base_url}/{safe_code}", quote=True)
+            return (
+                "<div class=\"node\">"
+                f"<strong>URL 키:</strong> <code>{safe_url}</code><br>"
+                f"<strong>짧은 코드:</strong> <code>{safe_code}</code><br>"
+                f"<strong>짧은 링크:</strong> "
+                f"<a href=\"{short_link}\">{short_link}</a>"
+                "<details><summary>호너 해시 및 탐색 과정</summary>"
+                f"<ol>{''.join(calculations)}</ol></details>"
+                "</div>"
+            )
+
+        if self.server.shortener.strategy == "linear_probing":
+            for index, entry in enumerate(table._slots):
+                if entry is None:
+                    content = "<em>비어 있음</em>"
+                else:
+                    url, code = entry
+                    content = entry_html(index, url, code, table.probe_indices(url))
+                rows.append(f"<tr><th scope=\"row\">{index}</th><td>{content}</td></tr>")
+            column_title = "칸"
+            table_title = "선형 탐지 해시 테이블"
+        else:
+            for index, bucket in enumerate(table._buckets):
+                nodes = [
+                    entry_html(index, url, code, ())
+                    for url, code in bucket
+                ]
+                chain = " &rarr; ".join(nodes) if nodes else "<em>비어 있음</em>"
+                rows.append(f"<tr><th scope=\"row\">{index}</th><td>{chain}</td></tr>")
+            column_title = "연결 리스트 (노드 &rarr; 노드)"
+            table_title = "체이닝 해시 테이블"
 
         return (
             "<!doctype html><html lang=\"ko\"><head><meta charset=\"utf-8\">"
             "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">"
-            "<title>현재 해시 테이블</title></head><body>"
-            "<main><h1>현재 해시 테이블</h1><p><a href=\"/\">URL 줄이기</a></p>"
-            "<table><thead><tr><th>버킷</th><th>연결 리스트 (노드 &rarr; 노드)</th>"
+            f"<title>{table_title}</title></head><body>"
+            f"<main><h1>{table_title}</h1><p><a href=\"/\">URL 줄이기</a></p>"
+            f"<table><thead><tr><th>{column_title}</th><th>저장된 항목</th>"
             "</tr></thead><tbody>"
             f"{''.join(rows)}</tbody></table></main></body></html>"
         )
@@ -222,16 +250,21 @@ class ShortenerRequestHandler(BaseHTTPRequestHandler):
         self._send_not_found()
 
 
-def create_server(host="", port=8000):
-    return ShortenerHTTPServer((host, port))
+def create_server(host="", port=8000, strategy="chaining"):
+    return ShortenerHTTPServer((host, port), strategy=strategy)
 
 
 def main():
     parser = argparse.ArgumentParser(description="Run the URL shortener web server")
     parser.add_argument("--port", type=int, default=8000)
+    parser.add_argument(
+        "--strategy",
+        choices=("chaining", "linear_probing"),
+        default="chaining",
+    )
     args = parser.parse_args()
 
-    server = create_server(port=args.port)
+    server = create_server(port=args.port, strategy=args.strategy)
     print(f"Serving URL shortener on port {server.server_port}")
     try:
         server.serve_forever()

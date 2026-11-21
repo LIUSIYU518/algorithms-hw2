@@ -4,6 +4,7 @@ import unittest
 from http.client import HTTPConnection
 
 from src.server import create_server
+from src.shortener import URLShortener
 
 
 class URLShortenerServerTests(unittest.TestCase):
@@ -14,6 +15,13 @@ class URLShortenerServerTests(unittest.TestCase):
         self.addCleanup(thread.join)
         self.addCleanup(self.server.server_close)
         self.addCleanup(self.server.shutdown)
+
+    def test_server_factory_selects_linear_probing(self):
+        server = create_server("127.0.0.1", 0, strategy="linear_probing")
+        try:
+            self.assertEqual(server.shortener.strategy, "linear_probing")
+        finally:
+            server.server_close()
 
     def request(self, method, path, body=None, headers=None):
         connection = HTTPConnection("127.0.0.1", self.server.server_port)
@@ -132,6 +140,32 @@ class URLShortenerServerTests(unittest.TestCase):
         self.assertIn("31 *", page)
         self.assertIn("bucket =", page)
         self.assertIn("href=\"http://127.0.0.1:", page)
+
+    def test_linear_probing_table_shows_slots_probe_path_and_hash_calculation(self):
+        self.server.shortener = URLShortener(strategy="linear_probing")
+        for url in (
+            "https://example.com/one",
+            "https://example.com/two",
+        ):
+            self.request(
+                "POST",
+                "/shorten",
+                json.dumps({"url": url}),
+                {"Content-Type": "application/json"},
+            )
+
+        status, headers, body = self.request("GET", "/table")
+        page = body.decode("utf-8")
+        self.assertEqual(status, 200)
+        self.assertIn("text/html", dict(headers)["Content-Type"])
+        self.assertIn("선형 탐지 해시 테이블", page)
+        self.assertIn("<th>칸</th>", page)
+        self.assertIn("https://example.com/one", page)
+        self.assertIn("https://example.com/two", page)
+        self.assertIn("home =", page)
+        self.assertIn("확인한 칸 (", page)
+        self.assertIn("저장된 칸 =", page)
+        self.assertIn("31 *", page)
 
     def test_unknown_routes_and_codes_return_404(self):
         status, _, _ = self.request("GET", "/missing")
