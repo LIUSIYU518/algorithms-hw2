@@ -35,12 +35,18 @@
 | --- | --- |
 | 테스트 | `make test` |
 | 웹 서버 (포트 8000) | `make serve` |
-| 해시 탐색 비교 횟수 실험 | `make experiment` |
+| 체이닝 해시 테이블의 적재율 실험 | `make experiment` |
+| 체이닝과 선형 조사의 비교 실험 | `make compare` |
 | 놓친 단계 따라잡기 | `sh tools/catchup.sh <단계 번호>` |
 
 외부 라이브러리는 쓰지 않습니다. Python 표준 모듈만으로 충분합니다.
-실험 결과표와 그래프는 각각 `experiments/results.csv`와
-`experiments/results.svg`에 저장됩니다.
+`make experiment`의 결과표와 그래프는 각각 `experiments/results.csv`와
+`experiments/results.svg`에 저장됩니다. `make compare`의 비교 결과는
+기존 파일을 덮어쓰지 않고 `experiments/comparison_results.csv`와
+`experiments/comparison_results.svg`에 별도로 저장됩니다. 비교 실험은
+적재율 0.1부터 0.9까지를 사용하고, 두 해시 테이블의 성공·실패 탐색에
+대한 실험값과 이론값을 함께 저장합니다. 각 적재율에서 두 방식에 같은
+4090칸 테이블과 같은 키를 사용합니다.
 
 ## 로컬에서 하기
 
