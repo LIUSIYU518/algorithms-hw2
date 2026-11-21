@@ -67,6 +67,13 @@ class ShortenerHTTPServer(HTTPServer):
 class ShortenerRequestHandler(BaseHTTPRequestHandler):
     server: ShortenerHTTPServer
 
+    def _public_base_url(self):
+        host = self.headers.get("X-Forwarded-Host") or self.headers.get("Host")
+        if not host:
+            host = f"localhost:{self.server.server_port}"
+        scheme = self.headers.get("X-Forwarded-Proto") or "http"
+        return f"{scheme}://{host}"
+
     def _send_bytes(self, status, content_type, body):
         self.send_response(status)
         self.send_header("Content-Type", content_type)
@@ -135,16 +142,13 @@ class ShortenerRequestHandler(BaseHTTPRequestHandler):
             self._send_json(400, {"error": str(error)})
             return
 
-        host = self.headers.get(
-            "Host", f"localhost:{self.server.server_port}"
-        )
-        short_url = f"http://{host}/{code}"
+        short_url = f"{self._public_base_url()}/{code}"
         status = 200 if existing_code is not None else 201
         self._send_json(status, {"code": code, "short_url": short_url})
 
     def _table_page(self):
         bucket_count = self.server.shortener._url_to_code.capacity
-        host = self.headers.get("Host", f"localhost:{self.server.server_port}")
+        base_url = self._public_base_url()
         rows = []
 
         for index, bucket in enumerate(self.server.shortener._url_to_code._buckets):
@@ -171,7 +175,7 @@ class ShortenerRequestHandler(BaseHTTPRequestHandler):
                     )
                 )
                 short_link = escape(
-                    f"http://{host}/{safe_code}", quote=True
+                    f"{base_url}/{safe_code}", quote=True
                 )
                 nodes.append(
                     "<div class=\"node\">"

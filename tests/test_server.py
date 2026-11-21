@@ -55,6 +55,29 @@ class URLShortenerServerTests(unittest.TestCase):
         self.assertEqual(status, 302)
         self.assertEqual(dict(response_headers)["Location"], url)
 
+    def test_proxy_headers_are_used_for_shorten_and_table_links(self):
+        url = "https://example.com/proxied"
+        forwarded_host = "my-codespace-8000.app.github.dev"
+        forwarded_proto = "https"
+        headers = {
+            "Content-Type": "application/json",
+            "X-Forwarded-Host": forwarded_host,
+            "X-Forwarded-Proto": forwarded_proto,
+        }
+
+        status, _, body = self.request(
+            "POST", "/shorten", json.dumps({"url": url}), headers
+        )
+        result = json.loads(body)
+        expected_link = f"https://{forwarded_host}/{result['code']}"
+        self.assertEqual(status, 201)
+        self.assertEqual(result["short_url"], expected_link)
+
+        status, _, body = self.request("GET", "/table", headers=headers)
+        page = body.decode("utf-8")
+        self.assertEqual(status, 200)
+        self.assertIn(f'href="{expected_link}"', page)
+
     def test_bad_json_and_invalid_url_return_json_400(self):
         status, headers, body = self.request(
             "POST",
