@@ -58,6 +58,17 @@ HOME_PAGE = """<!doctype html>
 """
 
 
+class _JSONObject:
+    def __init__(self, pairs):
+        self.pairs = pairs
+
+    def get(self, key):
+        for pair_key, value in reversed(self.pairs):
+            if pair_key == key:
+                return value
+        return None
+
+
 class ShortenerHTTPServer(HTTPServer):
     def __init__(self, server_address, shortener=None, strategy="chaining"):
         self.shortener = (
@@ -86,7 +97,11 @@ class ShortenerRequestHandler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def _send_json(self, status, payload):
-        body = json.dumps(payload).encode("utf-8")
+        serialized_pairs = (
+            f"{json.dumps(key)}: {json.dumps(value)}"
+            for key, value in payload
+        )
+        body = ("{" + ", ".join(serialized_pairs) + "}").encode("utf-8")
         self._send_bytes(status, "application/json; charset=utf-8", body)
 
     def _send_not_found(self):
@@ -124,16 +139,21 @@ class ShortenerRequestHandler(BaseHTTPRequestHandler):
             content_length = int(self.headers.get("Content-Length", "0"))
             if content_length < 0:
                 raise ValueError("Content-Length must not be negative")
-            payload = json.loads(self.rfile.read(content_length).decode("utf-8"))
+            payload = json.loads(
+                self.rfile.read(content_length).decode("utf-8"),
+                object_pairs_hook=_JSONObject,
+            )
         except (UnicodeDecodeError, json.JSONDecodeError, ValueError) as error:
-            self._send_json(400, {"error": str(error)})
+            self._send_json(400, (("error", str(error)),))
             return
 
-        getter = getattr(payload, "get", None)
-        if getter is None:
-            self._send_json(400, {"error": "request body must be a JSON object"})
+        if not isinstance(payload, _JSONObject):
+            self._send_json(
+                400,
+                (("error", "request body must be a JSON object"),),
+            )
             return
-        url = getter("url")
+        url = payload.get("url")
 
         existing_code = (
             self.server.shortener._url_to_code.get(url)
@@ -143,12 +163,15 @@ class ShortenerRequestHandler(BaseHTTPRequestHandler):
         try:
             code = self.server.shortener.shorten(url)
         except (TypeError, ValueError) as error:
-            self._send_json(400, {"error": str(error)})
+            self._send_json(400, (("error", str(error)),))
             return
 
         short_url = f"{self._public_base_url()}/{code}"
         status = 200 if existing_code is not None else 201
-        self._send_json(status, {"code": code, "short_url": short_url})
+        self._send_json(
+            status,
+            (("code", code), ("short_url", short_url)),
+        )
 
     def _table_page(self):
         table = self.server.shortener._url_to_code
