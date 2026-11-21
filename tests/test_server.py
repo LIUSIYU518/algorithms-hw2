@@ -10,11 +10,9 @@ from src.shortener import URLShortener
 class URLShortenerServerTests(unittest.TestCase):
     def setUp(self):
         self.server = create_server("127.0.0.1", 0)
-        thread = threading.Thread(target=self.server.serve_forever)
-        thread.start()
-        self.addCleanup(thread.join)
-        self.addCleanup(self.server.server_close)
-        self.addCleanup(self.server.shutdown)
+        self.server_thread = threading.Thread(target=self.server.serve_forever)
+        self.server_thread.start()
+        self.addCleanup(self._stop_server)
 
     def test_server_factory_selects_linear_probing(self):
         server = create_server("127.0.0.1", 0, strategy="linear_probing")
@@ -30,6 +28,11 @@ class URLShortenerServerTests(unittest.TestCase):
         result = response.status, response.getheaders(), response.read()
         connection.close()
         return result
+
+    def _stop_server(self):
+        self.server.shutdown()
+        self.server_thread.join()
+        self.server.server_close()
 
     def test_home_page_has_url_form_and_table_link(self):
         status, headers, body = self.request("GET", "/")
@@ -62,6 +65,26 @@ class URLShortenerServerTests(unittest.TestCase):
         )
         self.assertEqual(status, 302)
         self.assertEqual(dict(response_headers)["Location"], url)
+
+    def test_server_restart_clears_previous_short_codes(self):
+        url = "https://example.com/before-restart"
+        status, _, body = self.request(
+            "POST",
+            "/shorten",
+            json.dumps({"url": url}),
+            {"Content-Type": "application/json"},
+        )
+        self.assertEqual(status, 201)
+        code = json.loads(body)["code"]
+        port = self.server.server_port
+
+        self._stop_server()
+        self.server = create_server("127.0.0.1", port)
+        self.server_thread = threading.Thread(target=self.server.serve_forever)
+        self.server_thread.start()
+
+        status, _, _ = self.request("GET", f"/{code}")
+        self.assertEqual(status, 404)
 
     def test_proxy_headers_are_used_for_shorten_and_table_links(self):
         url = "https://example.com/proxied"

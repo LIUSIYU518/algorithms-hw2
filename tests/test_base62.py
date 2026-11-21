@@ -44,6 +44,16 @@ class Base62Tests(unittest.TestCase):
         with self.assertRaises(TypeError):
             encode(1.5)
 
+    def test_encode_rejects_bool(self):
+        with self.assertRaises((TypeError, ValueError)):
+            encode(True)
+
+    def test_decode_rejects_non_string_values(self):
+        for value in (None, 123, True):
+            with self.subTest(value=value):
+                with self.assertRaises(TypeError):
+                    decode(value)
+
     def test_decode_rejects_empty_or_invalid_strings(self):
         with self.assertRaises(ValueError):
             decode("")
